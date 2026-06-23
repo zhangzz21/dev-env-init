@@ -1,5 +1,48 @@
 #!/bin/bash
 
+set -e
+
+WORK_DIR="$1"
+if [ -z "$WORK_DIR" ]; then
+  echo -e "\033[1;31m[✘] Usage: $0 <work_dir>\033[0m"
+  exit 1
+fi
+mkdir -p "$WORK_DIR"
+
+# Network check
+if curl -sfL --connect-timeout 5 https://www.google.com -o /dev/null; then
+  echo -e "\033[1;32m[✔] Network OK (google reachable)\033[0m"
+else
+  echo -e "\033[1;31m[✘] ERROR: Cannot reach google, check network/proxy\033[0m"
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Copy glibc and tools-bin to work directory
+if [ -d "$WORK_DIR/.glibc-2.41" ]; then
+  echo -e "\033[1;32m[✔] .glibc-2.41 already exists in $WORK_DIR\033[0m"
+else
+  cp -r "$SCRIPT_DIR/glibc-2.41" "$WORK_DIR/.glibc-2.41"
+  echo -e "\033[1;32m[✔] glibc-2.41 copied to $WORK_DIR/.glibc-2.41\033[0m"
+fi
+if [ -d "$WORK_DIR/.bin" ]; then
+  echo -e "\033[1;32m[✔] .bin already exists in $WORK_DIR\033[0m"
+else
+  cp -r "$SCRIPT_DIR/tools-bin" "$WORK_DIR/.bin"
+  echo -e "\033[1;32m[✔] tools-bin copied to $WORK_DIR/.bin\033[0m"
+fi
+
+# Add .bin to PATH if tools are missing
+if ! command -v fd >/dev/null 2>&1 || ! command -v rg >/dev/null 2>&1 ||
+  ! command -v fzf >/dev/null 2>&1 || ! command -v duf >/dev/null 2>&1 ||
+  ! command -v dua >/dev/null 2>&1; then
+  export PATH="$WORK_DIR/.bin:$PATH"
+  grep -q "$WORK_DIR/.bin" "$HOME/.zshrc" 2>/dev/null ||
+    echo "export PATH=\"$WORK_DIR/.bin:\$PATH\"" >>"$HOME/.zshrc"
+  echo -e "\033[1;32m[✔] $WORK_DIR/.bin added to PATH\033[0m"
+fi
+
 export LC_ALL=zh_CN.UTF-8
 export LANG=zh_CN.UTF-8
 
@@ -47,6 +90,8 @@ fi
 if [ -f "$HOME/.zshrc" ]; then
   sed -i 's/^plugins=(.*/plugins=(git zsh-autosuggestions zsh-syntax-highlighting z vi-mode)/' "$HOME/.zshrc"
   sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$HOME/.zshrc"
+  grep -q 'export EDITOR=nvim' "$HOME/.zshrc" || echo 'export EDITOR=nvim' >>"$HOME/.zshrc"
+  grep -q 'export PAGER=delta' "$HOME/.zshrc" || echo 'export PAGER=delta' >>"$HOME/.zshrc"
   echo -e "\033[1;32m[✔] Plugins and theme configured\033[0m"
 fi
 
@@ -189,4 +234,17 @@ else
     echo -e "\033[1;31m[✘] ERROR: Node.js installation failed\033[0m"
     exit 1
   fi
+fi
+
+# ============ git delta ============
+
+if command -v delta >/dev/null 2>&1; then
+  git config --global core.pager delta
+  git config --global interactive.diffFilter 'delta --color-only'
+  git config --global delta.navigate true
+  git config --global delta.side-by-side true
+  git config --global merge.conflictstyle zdiff3
+  echo -e "\033[1;32m[✔] git configured to use delta\033[0m"
+else
+  echo -e "\033[1;33m[!] delta not found, skipping git delta config\033[0m"
 fi
