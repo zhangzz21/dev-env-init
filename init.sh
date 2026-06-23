@@ -33,18 +33,8 @@ else
   echo -e "\033[1;32m[✔] tools-bin copied to $WORK_DIR/.bin\033[0m"
 fi
 
-# Add .bin to PATH if tools are missing
-if ! command -v fd >/dev/null 2>&1 || ! command -v rg >/dev/null 2>&1 ||
-  ! command -v fzf >/dev/null 2>&1 || ! command -v duf >/dev/null 2>&1 ||
-  ! command -v dua >/dev/null 2>&1; then
-  export PATH="$WORK_DIR/.bin:$PATH"
-  grep -q "$WORK_DIR/.bin" "$HOME/.zshrc" 2>/dev/null ||
-    echo "export PATH=\"$WORK_DIR/.bin:\$PATH\"" >>"$HOME/.zshrc"
-  echo -e "\033[1;32m[✔] $WORK_DIR/.bin added to PATH\033[0m"
-fi
-
-export LC_ALL=zh_CN.UTF-8
-export LANG=zh_CN.UTF-8
+# export LC_ALL=zh_CN.UTF-8
+# export LANG=zh_CN.UTF-8
 
 if command -v zsh >/dev/null 2>&1; then
   echo -e "\033[1;32m[✔] zsh found: $(command -v zsh)\033[0m"
@@ -92,6 +82,8 @@ if [ -f "$HOME/.zshrc" ]; then
   sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$HOME/.zshrc"
   grep -q 'export EDITOR=nvim' "$HOME/.zshrc" || echo 'export EDITOR=nvim' >>"$HOME/.zshrc"
   grep -q 'export PAGER=delta' "$HOME/.zshrc" || echo 'export PAGER=delta' >>"$HOME/.zshrc"
+  grep -q 'setopt ignore_eof' "$HOME/.zshrc" || echo 'set opt ignore_eof' >>"$HOME/.zshrc"
+  grep -q "$WORK_DIR/.bin" "$HOME/.zshrc" 2>/dev/null || echo "export PATH=\"$WORK_DIR/.bin:\$PATH\"" >>"$HOME/.zshrc"
   echo -e "\033[1;32m[✔] Plugins and theme configured\033[0m"
 fi
 
@@ -115,9 +107,13 @@ if [ -d "$HOME/.tmux" ]; then
 else
   echo -e "\033[1;34m[…] Installing oh-my-tmux...\033[0m"
   git clone https://github.com/gpakosz/.tmux.git "$HOME/.tmux"
-  ln -sf "$HOME/.tmux/.tmux.conf" "$HOME/.tmux.conf"
-  cp "$HOME/.tmux/.tmux.conf.local" "$HOME/.tmux.conf.local"
   echo -e "\033[1;32m[✔] oh-my-tmux installed\033[0m"
+fi
+
+# Ensure oh-my-tmux config files are linked/copied
+ln -sf "$HOME/.tmux/.tmux.conf" "$HOME/.tmux.conf"
+if [ ! -f "$HOME/.tmux.conf.local" ]; then
+  cp "$HOME/.tmux/.tmux.conf.local" "$HOME/.tmux.conf.local"
 fi
 
 # Configure oh-my-tmux
@@ -125,17 +121,25 @@ TMUX_LOCAL="$HOME/.tmux.conf.local"
 if [ -f "$TMUX_LOCAL" ]; then
   sed -i 's/^#\?set -g mouse on/set -g mouse on/' "$TMUX_LOCAL"
   sed -i 's/^#\?set -g history-limit.*/set -g history-limit 1000000/' "$TMUX_LOCAL"
-  sed -i 's/^#\?set -g prefix2 C-a/set -g prefix2 C-a/' "$TMUX_LOCAL"
+  sed -i 's/^#\?set -g prefix C-a/set -g prefix C-a/' "$TMUX_LOCAL"
+  sed -i 's/^#\?unbind C-b/unbind C-b/' "$TMUX_LOCAL"
+  sed -i 's/^#\?bind C-a send-prefix/bind C-a send-prefix/' "$TMUX_LOCAL"
   sed -i 's/^#\?set -g status-keys vi/set -g status-keys vi/' "$TMUX_LOCAL"
   sed -i 's/^#\?setw -g mode-keys vi/setw -g mode-keys vi/' "$TMUX_LOCAL"
   # Append settings if not already present
   grep -q '^set -g mouse on' "$TMUX_LOCAL" || echo 'set -g mouse on' >>"$TMUX_LOCAL"
   grep -q '^set -g history-limit' "$TMUX_LOCAL" || echo 'set -g history-limit 1000000' >>"$TMUX_LOCAL"
-  grep -q '^set -g prefix2 C-a' "$TMUX_LOCAL" || echo 'set -g prefix2 C-a' >>"$TMUX_LOCAL"
+  grep -q '^set -g prefix C-a' "$TMUX_LOCAL" || echo 'set -g prefix C-a' >>"$TMUX_LOCAL"
+  grep -q '^unbind C-b' "$TMUX_LOCAL" || echo 'unbind C-b' >>"$TMUX_LOCAL"
+  grep -q '^bind C-a send-prefix' "$TMUX_LOCAL" || echo 'bind C-a send-prefix' >>"$TMUX_LOCAL"
   grep -q '^set -g status-keys vi' "$TMUX_LOCAL" || echo 'set -g status-keys vi' >>"$TMUX_LOCAL"
   grep -q '^setw -g mode-keys vi' "$TMUX_LOCAL" || echo 'setw -g mode-keys vi' >>"$TMUX_LOCAL"
   grep -q '^set -g default-shell' "$TMUX_LOCAL" || echo "set -g default-shell $(command -v zsh)" >>"$TMUX_LOCAL"
   echo -e "\033[1;32m[✔] tmux configured: mouse on, history 1000000, prefix C-a, vi-mode, zsh\033[0m"
+fi
+
+if tmux info >/dev/null 2>&1; then
+  tmux source-file "$HOME/.tmux.conf"
 fi
 
 # ============ neovim ============
@@ -168,22 +172,27 @@ else
   echo -e "\033[1;32m[✔] LazyVim installed\033[0m"
 fi
 
-# Enable LazyVim extras
-LAZYVIM_JSON="$HOME/.config/nvim/lazyvim.json"
-EXTRAS_TO_ADD='lazyvim.plugins.extras.coding.yanky'
-if [ ! -f "$LAZYVIM_JSON" ]; then
-  cat >"$LAZYVIM_JSON" <<EOF
-{
-  "extras": [
-    "$EXTRAS_TO_ADD"
-  ]
-}
-EOF
-  echo -e "\033[1;32m[✔] LazyVim extras configured: $EXTRAS_TO_ADD\033[0m"
-elif ! grep -q "$EXTRAS_TO_ADD" "$LAZYVIM_JSON"; then
-  sed -i "s|\"extras\": \[|\"extras\": [\n    \"$EXTRAS_TO_ADD\",|" "$LAZYVIM_JSON"
-  echo -e "\033[1;32m[✔] LazyVim extras added: $EXTRAS_TO_ADD\033[0m"
-fi
+# # Enable LazyVim extras
+# LAZYVIM_JSON="$HOME/.config/nvim/lazyvim.json"
+# EXTRAS_TO_ADD='coding.yanky'
+# if [ ! -f "$LAZYVIM_JSON" ]; then
+#   cat >"$LAZYVIM_JSON" <<EOF
+# {
+#   "extras": [
+#     "$EXTRAS_TO_ADD"
+#   ]
+# }
+# EOF
+#   echo -e "\033[1;32m[✔] LazyVim extras configured: $EXTRAS_TO_ADD\033[0m"
+# else
+#   # LazyVim starter expects short extra names in lazyvim.json, e.g. "coding.yanky".
+#   # Fix old wrong value that caused lazyvim.plugins.extras.lazyvim.plugins.extras.* imports.
+#   sed -i 's|lazyvim\.plugins\.extras\.coding\.yanky|coding.yanky|g' "$LAZYVIM_JSON"
+#   if ! grep -q '"coding.yanky"' "$LAZYVIM_JSON"; then
+#     sed -i "s|\"extras\": \[|\"extras\": [\n    \"$EXTRAS_TO_ADD\",|" "$LAZYVIM_JSON"
+#     echo -e "\033[1;32m[✔] LazyVim extras added: $EXTRAS_TO_ADD\033[0m"
+#   fi
+# fi
 
 # Patch tree-sitter binary with newer glibc (for nvim-treesitter)
 GLIBC_DIR="/workspace/.glibc-2.41"
