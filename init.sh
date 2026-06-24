@@ -2,11 +2,74 @@
 
 set -e
 
-WORK_DIR="$1"
+RESET=0
+if [ "$1" = "--reset" ]; then
+  RESET=1
+  WORK_DIR="$2"
+else
+  WORK_DIR="$1"
+  if [ "$2" = "--reset" ]; then
+    RESET=1
+  fi
+fi
+
 if [ -z "$WORK_DIR" ]; then
-  echo -e "\033[1;31m[✘] Usage: $0 <work_dir>\033[0m"
+  echo -e "\033[1;31m[✘] Usage: $0 [--reset] <work_dir>\033[0m"
   exit 1
 fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+reset_environment() {
+  echo -e "\033[1;34m[…] Resetting dev environment changes...\033[0m"
+
+  rm -rf "$WORK_DIR/.glibc-2.41" "$WORK_DIR/.bin/.nvim" "$WORK_DIR/.bin/.git" "$WORK_DIR/.bin/.src"
+
+  if [ -d "$WORK_DIR/.bin" ]; then
+    rm -f "$WORK_DIR/.bin/nvim" "$WORK_DIR/.bin/git" "$WORK_DIR/.bin/gitk" "$WORK_DIR/.bin/git-cvsserver" "$WORK_DIR/.bin/scalar"
+    rm -f "$WORK_DIR/.bin/git-receive-pack" "$WORK_DIR/.bin/git-upload-archive" "$WORK_DIR/.bin/git-upload-pack"
+    if [ -d "$SCRIPT_DIR/tools-bin" ]; then
+      find "$SCRIPT_DIR/tools-bin" -mindepth 1 -maxdepth 1 -exec sh -c 'rm -rf "$1/.bin/$(basename "$2")"' sh "$WORK_DIR" {} \;
+    fi
+    rmdir "$WORK_DIR/.bin" 2>/dev/null || true
+  fi
+
+  if [ -f "$HOME/.zshrc" ]; then
+    sed -i "\|$WORK_DIR/.bin|d" "$HOME/.zshrc"
+    sed -i '/^export EDITOR=nvim$/d' "$HOME/.zshrc"
+    sed -i '/^export PAGER=delta$/d' "$HOME/.zshrc"
+    sed -i '/^setopt ignore_eof$/d' "$HOME/.zshrc"
+    sed -i 's|^ZSH_THEME="powerlevel10k/powerlevel10k"|ZSH_THEME="robbyrussell"|' "$HOME/.zshrc"
+    sed -i 's/^plugins=(git zsh-autosuggestions zsh-syntax-highlighting z vi-mode)/plugins=(git)/' "$HOME/.zshrc"
+  fi
+
+  rm -rf "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions"
+  rm -rf "$HOME/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting"
+  rm -rf "$HOME/.oh-my-zsh/custom/themes/powerlevel10k"
+
+  if [ -L "$HOME/.tmux.conf" ]; then
+    rm -f "$HOME/.tmux.conf"
+  fi
+  rm -rf "$HOME/.tmux"
+  rm -f "$HOME/.tmux.conf.local"
+
+  rm -rf "$HOME/.config/nvim"
+  rm -rf "$HOME/.local/share/nvim" "$HOME/.local/state/nvim" "$HOME/.cache/nvim"
+
+  git config --global --unset core.pager 2>/dev/null || true
+  git config --global --unset interactive.diffFilter 2>/dev/null || true
+  git config --global --unset delta.navigate 2>/dev/null || true
+  git config --global --unset delta.side-by-side 2>/dev/null || true
+  git config --global --unset merge.conflictstyle 2>/dev/null || true
+
+  echo -e "\033[1;32m[✔] Reset complete\033[0m"
+}
+
+if [ "$RESET" -eq 1 ]; then
+  reset_environment
+  exit 0
+fi
+
 mkdir -p "$WORK_DIR"
 
 # Network check
@@ -16,8 +79,6 @@ else
   echo -e "\033[1;31m[✘] ERROR: Cannot reach google, check network/proxy\033[0m"
   exit 1
 fi
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Copy glibc and tools-bin to work directory
 if [ -d "$WORK_DIR/.glibc-2.41" ]; then
@@ -49,15 +110,16 @@ if [ -x "$WORK_DIR/.bin/nvim" ]; then
   echo -e "\033[1;32m[✔] neovim already installed: $($WORK_DIR/.bin/nvim --version | head -1)\033[0m"
 else
   echo -e "\033[1;34m[…] Building and installing neovim...\033[0m"
-  NVIM_SRC_DIR="$WORK_DIR/.src/neovim"
+  NVIM_SRC_DIR="$WORK_DIR/.bin/.src/neovim"
   rm -rf "$NVIM_SRC_DIR"
   git clone --depth=1 --branch stable https://github.com/neovim/neovim.git "$NVIM_SRC_DIR"
   (
     cd "$NVIM_SRC_DIR"
-    make CMAKE_BUILD_TYPE=Release CMAKE_INSTALL_PREFIX="$WORK_DIR/.nvim" -j"$(nproc)"
-    make CMAKE_INSTALL_PREFIX="$WORK_DIR/.nvim" install
+    make CMAKE_BUILD_TYPE=Release CMAKE_INSTALL_PREFIX="$WORK_DIR/.bin/.nvim" -j"$(nproc)"
+    make CMAKE_INSTALL_PREFIX="$WORK_DIR/.bin/.nvim" install
   )
-  ln -sf "$WORK_DIR/.nvim/bin/nvim" "$WORK_DIR/.bin/nvim"
+  ln -sf "$WORK_DIR/.bin/.nvim/bin/nvim" "$WORK_DIR/.bin/nvim"
+  rm -rf "$NVIM_SRC_DIR"
   if [ -x "$WORK_DIR/.bin/nvim" ]; then
     echo -e "\033[1;32m[✔] neovim installed: $($WORK_DIR/.bin/nvim --version | head -1)\033[0m"
   else
@@ -72,12 +134,12 @@ if [ -x "$WORK_DIR/.bin/git" ]; then
   echo -e "\033[1;32m[✔] git already installed: $($WORK_DIR/.bin/git --version)\033[0m"
 else
   echo -e "\033[1;34m[…] Building Git from source...\033[0m"
-  GIT_SRC_DIR="$WORK_DIR/.src/git"
+  GIT_SRC_DIR="$WORK_DIR/.bin/.src/git"
   rm -rf "$GIT_SRC_DIR"
   mkdir -p "$GIT_SRC_DIR"
-  curl -fsSL https://github.com/git/git/archive/refs/heads/master.tar.gz -o "$WORK_DIR/.src/git.tar.gz"
-  tar -xzf "$WORK_DIR/.src/git.tar.gz" -C "$GIT_SRC_DIR" --strip-components=1
-  rm -f "$WORK_DIR/.src/git.tar.gz"
+  curl -fsSL https://github.com/git/git/archive/refs/heads/master.tar.gz -o "$WORK_DIR/.bin/.src/git.tar.gz"
+  tar -xzf "$WORK_DIR/.bin/.src/git.tar.gz" -C "$GIT_SRC_DIR" --strip-components=1
+  rm -f "$WORK_DIR/.bin/.src/git.tar.gz"
   (
     cd "$GIT_SRC_DIR"
     env -u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH \
@@ -85,7 +147,7 @@ else
       make NO_RUST=YesPlease -j"$(nproc)"
     env -u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH \
       PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-      make NO_RUST=YesPlease prefix="$WORK_DIR/.git" bindir="$WORK_DIR/.bin" install
+      make NO_RUST=YesPlease prefix="$WORK_DIR/.bin/.git" bindir="$WORK_DIR/.bin" install
   )
   echo -e "\033[1;32m[✔] git installed: $($WORK_DIR/.bin/git --version)\033[0m"
   rm -rf "$GIT_SRC_DIR"
