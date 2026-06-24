@@ -43,6 +43,54 @@ else
   exit 1
 fi
 
+# ============ neovim  from source============
+
+if [ -x "$WORK_DIR/.bin/nvim" ]; then
+  echo -e "\033[1;32m[✔] neovim already installed: $($WORK_DIR/.bin/nvim --version | head -1)\033[0m"
+else
+  echo -e "\033[1;34m[…] Building and installing neovim...\033[0m"
+  NVIM_SRC_DIR="$WORK_DIR/.src/neovim"
+  rm -rf "$NVIM_SRC_DIR"
+  git clone --depth=1 --branch stable https://github.com/neovim/neovim.git "$NVIM_SRC_DIR"
+  (
+    cd "$NVIM_SRC_DIR"
+    make CMAKE_BUILD_TYPE=Release CMAKE_INSTALL_PREFIX="$WORK_DIR/.nvim" -j"$(nproc)"
+    make CMAKE_INSTALL_PREFIX="$WORK_DIR/.nvim" install
+  )
+  ln -sf "$WORK_DIR/.nvim/bin/nvim" "$WORK_DIR/.bin/nvim"
+  if [ -x "$WORK_DIR/.bin/nvim" ]; then
+    echo -e "\033[1;32m[✔] neovim installed: $($WORK_DIR/.bin/nvim --version | head -1)\033[0m"
+  else
+    echo -e "\033[1;31m[✘] ERROR: neovim installation failed\033[0m"
+    exit 1
+  fi
+fi
+
+# ============ Git from source ============
+
+if [ -x "$WORK_DIR/.bin/git" ]; then
+  echo -e "\033[1;32m[✔] git already installed: $($WORK_DIR/.bin/git --version)\033[0m"
+else
+  echo -e "\033[1;34m[…] Building Git from source...\033[0m"
+  GIT_SRC_DIR="$WORK_DIR/.src/git"
+  rm -rf "$GIT_SRC_DIR"
+  mkdir -p "$GIT_SRC_DIR"
+  curl -fsSL https://github.com/git/git/archive/refs/heads/master.tar.gz -o "$WORK_DIR/.src/git.tar.gz"
+  tar -xzf "$WORK_DIR/.src/git.tar.gz" -C "$GIT_SRC_DIR" --strip-components=1
+  rm -f "$WORK_DIR/.src/git.tar.gz"
+  (
+    cd "$GIT_SRC_DIR"
+    env -u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH \
+      PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+      make NO_RUST=YesPlease -j"$(nproc)"
+    env -u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH \
+      PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+      make NO_RUST=YesPlease prefix="$WORK_DIR/.git" bindir="$WORK_DIR/.bin" install
+  )
+  echo -e "\033[1;32m[✔] git installed: $($WORK_DIR/.bin/git --version)\033[0m"
+  rm -rf "$GIT_SRC_DIR"
+fi
+
 # Install oh-my-zsh
 if [ -d "$HOME/.oh-my-zsh" ]; then
   echo -e "\033[1;32m[✔] oh-my-zsh already installed\033[0m"
@@ -82,10 +130,12 @@ if [ -f "$HOME/.zshrc" ]; then
   sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$HOME/.zshrc"
   grep -q 'export EDITOR=nvim' "$HOME/.zshrc" || echo 'export EDITOR=nvim' >>"$HOME/.zshrc"
   grep -q 'export PAGER=delta' "$HOME/.zshrc" || echo 'export PAGER=delta' >>"$HOME/.zshrc"
-  grep -q 'setopt ignore_eof' "$HOME/.zshrc" || echo 'set opt ignore_eof' >>"$HOME/.zshrc"
+  grep -q 'setopt ignore_eof' "$HOME/.zshrc" || echo 'setopt ignore_eof' >>"$HOME/.zshrc"
   grep -q "$WORK_DIR/.bin" "$HOME/.zshrc" 2>/dev/null || echo "export PATH=\"$WORK_DIR/.bin:\$PATH\"" >>"$HOME/.zshrc"
   echo -e "\033[1;32m[✔] Plugins and theme configured\033[0m"
 fi
+
+export PATH=$WORK_DIR/.bin:$PATH
 
 # ============ tmux ============
 
@@ -142,26 +192,6 @@ if tmux info >/dev/null 2>&1; then
   tmux source-file "$HOME/.tmux.conf"
 fi
 
-# ============ neovim ============
-
-if command -v nvim >/dev/null 2>&1; then
-  echo -e "\033[1;32m[✔] neovim already installed: $(nvim --version | head -1)\033[0m"
-else
-  echo -e "\033[1;34m[…] Building and installing neovim...\033[0m"
-  git clone --depth=1 --branch stable https://github.com/neovim/neovim.git /tmp/neovim-build
-  cd /tmp/neovim-build
-  make CMAKE_BUILD_TYPE=Release -j"$(nproc)"
-  make install
-  cd -
-  rm -rf /tmp/neovim-build
-  if command -v nvim >/dev/null 2>&1; then
-    echo -e "\033[1;32m[✔] neovim installed: $(nvim --version | head -1)\033[0m"
-  else
-    echo -e "\033[1;31m[✘] ERROR: neovim installation failed\033[0m"
-    exit 1
-  fi
-fi
-
 # Install LazyVim
 if [ -d "$HOME/.config/nvim" ]; then
   echo -e "\033[1;32m[✔] nvim config already exists\033[0m"
@@ -210,6 +240,8 @@ TS_BIN="$HOME/.local/share/nvim/mason/bin/tree-sitter"
 if [ ! -f "$TS_BIN" ]; then
   TS_BIN=$(find "$HOME/.local/share/nvim" -name tree-sitter -type f 2>/dev/null | head -1)
 fi
+TS_BIN="$(readlink -f $TS_BIN)"
+
 if [ -n "$TS_BIN" ] && [ -f "$TS_BIN" ]; then
   if ! command -v patchelf >/dev/null 2>&1; then
     echo -e "\033[1;34m[…] Installing patchelf...\033[0m"
@@ -217,7 +249,7 @@ if [ -n "$TS_BIN" ] && [ -f "$TS_BIN" ]; then
   fi
   LD_PATH="$GLIBC_DIR/usr/lib/x86_64-linux-gnu"
   INTERP="$LD_PATH/ld-linux-x86-64.so.2"
-  patchelf --set-interpreter "$INTERP" --set-rpath "$LD_PATH" "$TS_BIN"
+  patchelf --set-interpreter "$INTERP" --force-rpath --set-rpath "$LD_PATH" "$TS_BIN"
   echo -e "\033[1;32m[✔] tree-sitter patched to use glibc 2.41\033[0m"
 else
   echo -e "\033[1;33m[!] tree-sitter binary not found yet — run nvim once, then re-run this script to patch it\033[0m"
@@ -256,4 +288,16 @@ if command -v delta >/dev/null 2>&1; then
   echo -e "\033[1;32m[✔] git configured to use delta\033[0m"
 else
   echo -e "\033[1;33m[!] delta not found, skipping git delta config\033[0m"
+fi
+
+# ============ conda ============
+
+if command -v conda >/dev/null 2>&1; then
+  if [ -n "$CONDA_DEFAULT_ENV" ]; then
+    echo -e "\033[1;32m[✔] conda environment active: $CONDA_DEFAULT_ENV\033[0m"
+  else
+    echo -e "\033[1;33m[!] conda found but no environment is active. Please run: conda activate <env-name>\033[0m"
+  fi
+else
+  echo -e "\033[1;33m[!] conda not found, skipping conda environment check\033[0m"
 fi
