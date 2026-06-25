@@ -264,6 +264,17 @@ else
   echo -e "\033[1;32m[✔] LazyVim installed\033[0m"
 fi
 
+# Check tree-sitter installed by LazyVim/Mason
+TS_BIN="$HOME/.local/share/nvim/mason/bin/tree-sitter"
+if [ ! -e "$TS_BIN" ]; then
+  TS_BIN=$(find "$HOME/.local/share/nvim" \( -name tree-sitter -o -name tree-sitter-linux-x64 \) 2>/dev/null | head -1)
+fi
+if [ -z "$TS_BIN" ] || [ ! -e "$TS_BIN" ]; then
+  echo -e "\033[1;33m[!] tree-sitter not found. Please start zsh and run nvim once to install LazyVim plugins, then re-run this script.\033[0m"
+  echo -e "\033[1;33m[!] Example: exec zsh; nvim\033[0m"
+  exit 1
+fi
+
 # # Enable LazyVim extras
 # LAZYVIM_JSON="$HOME/.config/nvim/lazyvim.json"
 # EXTRAS_TO_ADD='coding.yanky'
@@ -302,7 +313,6 @@ TS_BIN="$HOME/.local/share/nvim/mason/bin/tree-sitter"
 if [ ! -f "$TS_BIN" ]; then
   TS_BIN=$(find "$HOME/.local/share/nvim" -name tree-sitter -type f 2>/dev/null | head -1)
 fi
-TS_BIN="$(readlink -f $TS_BIN)"
 
 if [ -n "$TS_BIN" ] && [ -f "$TS_BIN" ]; then
   if ! command -v patchelf >/dev/null 2>&1; then
@@ -354,12 +364,12 @@ fi
 
 # ============ conda ============
 
-if command -v conda >/dev/null 2>&1; then
+if [[ ":$PATH:" == *conda* ]]; then
   if [ -n "$CONDA_DEFAULT_ENV" ]; then
     echo -e "\033[1;32m[✔] conda environment active: $CONDA_DEFAULT_ENV\033[0m"
   else
-    echo -e "\033[1;33m[!] conda found but no environment is active. Please run: conda activate <env-name>\033[0m"
+    echo -e "\033[1;32m[✔] conda environment detected in PATH\033[0m"
   fi
 else
-  echo -e "\033[1;33m[!] conda not found, skipping conda environment check\033[0m"
+  echo -e "\033[1;33m[!] conda environment is not active. Please run: conda activate <env-name>\033[0m"
 fi
