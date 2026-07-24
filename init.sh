@@ -41,6 +41,7 @@ reset_environment() {
     sed -i '/^setopt ignore_eof$/d' "$HOME/.zshrc"
     sed -i 's|^ZSH_THEME="powerlevel10k/powerlevel10k"|ZSH_THEME="robbyrussell"|' "$HOME/.zshrc"
     sed -i 's/^plugins=(git zsh-autosuggestions zsh-syntax-highlighting z vi-mode)/plugins=(git)/' "$HOME/.zshrc"
+    sed -i '\|eval "$(atuin init zsh --disable-up-arrow)"|d' "$HOME/.zshrc"
   fi
 
   rm -rf "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions"
@@ -372,4 +373,61 @@ if [[ ":$PATH:" == *conda* ]]; then
   fi
 else
   echo -e "\033[1;33m[!] conda environment is not active. Please run: conda activate <env-name>\033[0m"
+fi
+
+# ============ atuin ============
+
+if ! command -v atuin >/dev/null 2>&1; then
+  echo -e "\033[1;33m[!] atuin not found in PATH, skipping atuin setup\033[0m"
+else
+  # Ensure the atuin binary can actually run; patch with newer glibc if not
+  if ! atuin --version >/dev/null 2>&1; then
+    echo -e "\033[1;34m[…] Patching atuin to use glibc 2.41...\033[0m"
+    if ! command -v patchelf >/dev/null 2>&1; then
+      apt-get install -y patchelf >/dev/null 2>&1 || pip install patchelf
+    fi
+    LD_PATH="$GLIBC_DIR/usr/lib/x86_64-linux-gnu"
+    INTERP="$LD_PATH/ld-linux-x86-64.so.2"
+    patchelf --set-interpreter "$INTERP" --force-rpath --set-rpath "$LD_PATH" "$WORK_DIR/.bin/atuin"
+    echo -e "\033[1;32m[✔] atuin patched to use glibc 2.41\033[0m"
+  fi
+
+  # Enable atuin shell integration in .zshrc (idempotent)
+  if [ -f "$HOME/.zshrc" ]; then
+    grep -q 'atuin init zsh' "$HOME/.zshrc" || echo 'eval "$(atuin init zsh --disable-up-arrow)"' >>"$HOME/.zshrc"
+    echo -e "\033[1;32m[✔] atuin shell integration enabled in .zshrc\033[0m"
+  fi
+
+  # Import existing shell history (idempotent, harmless to re-run)
+  atuin import auto >/dev/null 2>&1 || true
+
+  # Login and sync
+  if atuin status 2>/dev/null | grep -qi 'username:'; then
+    echo -e "\033[1;32m[✔] atuin already logged in, syncing...\033[0m"
+    atuin sync || true
+  elif [ -t 0 ]; then
+    echo -e "\033[1;34m[…] atuin login (leave username empty to skip)\033[0m"
+    printf 'atuin username: '
+    read ATUIN_USER
+    if [ -n "$ATUIN_USER" ]; then
+      printf 'atuin password: '
+      read -s ATUIN_PASS
+      echo
+      printf 'atuin key: '
+      read -s ATUIN_KEY
+      echo
+      if atuin login -u "$ATUIN_USER" -p "$ATUIN_PASS" -k "$ATUIN_KEY"; then
+        echo -e "\033[1;32m[✔] atuin logged in\033[0m"
+        atuin sync || true
+        echo -e "\033[1;32m[✔] atuin synced\033[0m"
+      else
+        echo -e "\033[1;31m[✘] atuin login failed, skipping sync\033[0m"
+      fi
+      unset ATUIN_PASS ATUIN_KEY
+    else
+      echo -e "\033[1;33m[!] atuin login skipped\033[0m"
+    fi
+  else
+    echo -e "\033[1;33m[!] no TTY, atuin login skipped — run 'atuin login' manually\033[0m"
+  fi
 fi
