@@ -311,7 +311,7 @@ fi
 # fi
 
 # Patch tree-sitter binary with newer glibc (for nvim-treesitter)
-GLIBC_DIR="/workspace/.glibc-2.41"
+GLIBC_DIR="/$WORK_DIR/.glibc-2.41"
 if [ ! -d "$GLIBC_DIR" ]; then
   echo -e "\033[1;34m[…] Downloading glibc 2.41...\033[0m"
   curl -fsSL http://ftp.de.debian.org/debian/pool/main/g/glibc/libc6_2.41-12+deb13u3_amd64.deb -o /tmp/libc6.deb
