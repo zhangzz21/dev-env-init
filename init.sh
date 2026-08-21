@@ -59,6 +59,11 @@ reset_environment() {
   rm -rf "$HOME/.config/nvim"
   rm -rf "$HOME/.local/share/nvim" "$HOME/.local/state/nvim" "$HOME/.cache/nvim"
 
+  # Only drop the config this script installs; installed packages under
+  # ~/.local/share/soar are user data and are left alone.
+  rm -f "$HOME/.config/soar/config.toml"
+  rmdir "$HOME/.config/soar" 2>/dev/null || true
+
   git config --global --unset core.pager 2>/dev/null || true
   git config --global --unset interactive.diffFilter 2>/dev/null || true
   git config --global --unset delta.navigate 2>/dev/null || true
@@ -385,6 +390,21 @@ if [[ ":$PATH:" == *conda* ]]; then
   fi
 else
   echo -e "\033[1;33m[!] conda environment is not active. Please run: conda activate <env-name>\033[0m"
+fi
+
+# ============ soar ============
+
+SOAR_CONFIG_SRC="$SCRIPT_DIR/config/soar/config.toml"
+SOAR_CONFIG_DST="$HOME/.config/soar/config.toml"
+
+if [ ! -f "$SOAR_CONFIG_SRC" ]; then
+  echo -e "\033[1;33m[!] soar config not found at $SOAR_CONFIG_SRC, skipping\033[0m"
+elif [ -f "$SOAR_CONFIG_DST" ]; then
+  echo -e "\033[1;32m[✔] soar config already exists: $SOAR_CONFIG_DST\033[0m"
+else
+  mkdir -p "$(dirname "$SOAR_CONFIG_DST")"
+  cp "$SOAR_CONFIG_SRC" "$SOAR_CONFIG_DST"
+  echo -e "\033[1;32m[✔] soar config copied to $SOAR_CONFIG_DST\033[0m"
 fi
 
 # ============ atuin ============

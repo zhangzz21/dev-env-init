@@ -1,0 +1,83 @@
+# The name of the default profile to use.
+default_profile = "default"
+# Path to the local cache directory.
+# Default: $SOAR_ROOT/cache
+cache_path = "/root/.local/share/soar/cache"
+# Path where the Soar package database is stored.
+# Default: $SOAR_ROOT/db
+db_path = "/root/.local/share/soar/db"
+# Directory where binary symlinks are placed.
+# Default: $SOAR_ROOT/bin
+bin_path = "/root/.local/share/soar/bin"
+# Path to the local clone of all repositories.
+# Default: $SOAR_ROOT/repos
+repositories_path = "/root/.local/share/soar/repos"
+# Portable dirs path
+# Default: $SOAR_ROOT/portable-dirs
+portable_dirs = "/root/.local/share/soar/portable-dirs"
+# If true, enables parallel downloading of packages.
+# Default: true
+parallel = true
+# Maximum number of parallel downloads.
+# Default: 4
+parallel_limit = 4
+# Maximum number of concurrent requests for GHCR (GitHub Container Registry).
+# Default: 8
+ghcr_concurrency = 8
+# Limits the number of results returned by a search.
+# Default: 20
+search_limit = 20
+# Allows packages to be updated across different repositories.
+# NOTE: This is not yet implemented
+cross_repo_updates = false
+# Glob patterns for package files that should be included during install.
+# Default: ["!*.log", "!SBUILD", "!*.json", "!*.version"]
+install_patterns = [
+    "!*.log",
+    "!SBUILD",
+    "!*.json",
+    "!*.version",
+]
+
+# A profile defines a local package store and its configuration.
+[profile.default]
+# Root directory for this profile’s data and packages.
+#
+# If `packages_path` is not set, packages will be stored in `root_path/packages`.
+root_path = "/root/.local/share/soar"
+# Optional path where packages are stored.
+#
+# If unset, defaults to `root_path/packages`.
+packages_path = "/root/.local/share/soar/packages"
+
+# List of configured repositories.
+#
+# Defines a remote repository that provides packages.
+[[repositories]]
+# Unique name of the repository.
+name = "soarpkgs"
+# URL to the repository's metadata file.
+url = "https://github.com/pkgforge/soarpkgs/releases/latest/download/metadata-x86_64-linux.sdb.zstd"
+# Enables desktop integration for packages from this repository.
+# Default: true
+desktop_integration = true
+# Base64-encoded public key for signature verification (minisign format).
+pubkey = "RWQ109gKujRqohsA7RERlXFfeJi23EcHN3Dz8TxyPAywa5mLw/fbcbU4"
+
+[[repositories]]
+name = "bincache"
+url  = "https://meta.pkgforge.dev/bincache/x86_64-Linux.sdb.zstd"
+
+[[repositories]]
+name = "pkgcache"
+url  = "https://meta.pkgforge.dev/pkgcache/x86_64-Linux.sdb.zstd"
+
+[[repositories]]
+name = "pkgforge-cargo"
+url  = "https://meta.pkgforge.dev/external/pkgforge-cargo/x86_64-Linux.sdb.zstd"
+
+[[repositories]]
+name = "pkgforge-go"
+url  = "https://meta.pkgforge.dev/external/pkgforge-go/x86_64-Linux.sdb.zstd"
+
+
