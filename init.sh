@@ -102,6 +102,10 @@ else
   echo -e "\033[1;32m[✔] tools-bin copied to $WORK_DIR/.bin\033[0m"
 fi
 
+# Put the bundled tools, and the Git built below, ahead of the system ones for
+# the rest of this script.
+export PATH="$WORK_DIR/.bin:$PATH"
+
 # export LC_ALL=zh_CN.UTF-8
 # export LANG=zh_CN.UTF-8
 
@@ -111,6 +115,37 @@ else
   echo -e "\033[1;31m[✘] ERROR: zsh not found!\033[0m"
   exit 1
 fi
+
+# ============ Git from source ============
+# Built before everything else: the system git can be too old to clone the repos
+# the steps below need, so they all run with this one instead.
+
+if [ -x "$WORK_DIR/.bin/git" ]; then
+  echo -e "\033[1;32m[✔] git already installed: $($WORK_DIR/.bin/git --version)\033[0m"
+else
+  echo -e "\033[1;34m[…] Building Git from source...\033[0m"
+  GIT_SRC_DIR="$WORK_DIR/.bin/.src/git"
+  rm -rf "$GIT_SRC_DIR"
+  mkdir -p "$GIT_SRC_DIR"
+  curl -fsSL https://github.com/git/git/archive/refs/heads/master.tar.gz -o "$WORK_DIR/.bin/.src/git.tar.gz"
+  tar -xzf "$WORK_DIR/.bin/.src/git.tar.gz" -C "$GIT_SRC_DIR" --strip-components=1
+  rm -f "$WORK_DIR/.bin/.src/git.tar.gz"
+  (
+    cd "$GIT_SRC_DIR"
+    env -u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH \
+      PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+      make NO_RUST=YesPlease -j"$(nproc)"
+    env -u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH \
+      PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+      make NO_RUST=YesPlease prefix="$WORK_DIR/.bin/.git" bindir="$WORK_DIR/.bin" install
+  )
+  echo -e "\033[1;32m[✔] git installed: $($WORK_DIR/.bin/git --version)\033[0m"
+  rm -rf "$GIT_SRC_DIR"
+fi
+
+# Drop any git path this shell already resolved, so the new binary is picked up.
+hash -r
+echo -e "\033[1;32m[✔] git in use: $(command -v git) ($(git --version))\033[0m"
 
 # ============ neovim  from source============
 
@@ -134,31 +169,6 @@ else
     echo -e "\033[1;31m[✘] ERROR: neovim installation failed\033[0m"
     exit 1
   fi
-fi
-
-# ============ Git from source ============
-
-if [ -x "$WORK_DIR/.bin/git" ]; then
-  echo -e "\033[1;32m[✔] git already installed: $($WORK_DIR/.bin/git --version)\033[0m"
-else
-  echo -e "\033[1;34m[…] Building Git from source...\033[0m"
-  GIT_SRC_DIR="$WORK_DIR/.bin/.src/git"
-  rm -rf "$GIT_SRC_DIR"
-  mkdir -p "$GIT_SRC_DIR"
-  curl -fsSL https://github.com/git/git/archive/refs/heads/master.tar.gz -o "$WORK_DIR/.bin/.src/git.tar.gz"
-  tar -xzf "$WORK_DIR/.bin/.src/git.tar.gz" -C "$GIT_SRC_DIR" --strip-components=1
-  rm -f "$WORK_DIR/.bin/.src/git.tar.gz"
-  (
-    cd "$GIT_SRC_DIR"
-    env -u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH \
-      PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-      make NO_RUST=YesPlease -j"$(nproc)"
-    env -u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH \
-      PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-      make NO_RUST=YesPlease prefix="$WORK_DIR/.bin/.git" bindir="$WORK_DIR/.bin" install
-  )
-  echo -e "\033[1;32m[✔] git installed: $($WORK_DIR/.bin/git --version)\033[0m"
-  rm -rf "$GIT_SRC_DIR"
 fi
 
 # Install oh-my-zsh
@@ -214,8 +224,6 @@ if [ -f "$HOME/.zshrc" ]; then
   grep -q "$WORK_DIR/.bin" "$HOME/.zshrc" 2>/dev/null || echo "export PATH=\"$WORK_DIR/.bin:\$PATH\"" >>"$HOME/.zshrc"
   echo -e "\033[1;32m[✔] Plugins and theme configured\033[0m"
 fi
-
-export PATH=$WORK_DIR/.bin:$PATH
 
 # ============ tmux ============
 
