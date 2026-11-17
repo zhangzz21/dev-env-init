@@ -23,7 +23,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 reset_environment() {
   echo -e "\033[1;34m[…] Resetting dev environment changes...\033[0m"
 
-  rm -rf "$WORK_DIR/.glibc-2.41" "$WORK_DIR/.bin/.nvim" "$WORK_DIR/.bin/.git" "$WORK_DIR/.bin/.src" "$WORK_DIR/.bin/.sysroot"
+  rm -rf "$WORK_DIR/.glibc-2.41" "$WORK_DIR/.bin/.nvim" "$WORK_DIR/.bin/.git" \
+    "$WORK_DIR/.bin/.src" "$WORK_DIR/.bin/.sysroot" "$WORK_DIR/.bin/.cmake"
 
   if [ -d "$WORK_DIR/.bin" ]; then
     rm -f "$WORK_DIR/.bin/nvim" "$WORK_DIR/.bin/git" "$WORK_DIR/.bin/gitk" "$WORK_DIR/.bin/git-cvsserver" "$WORK_DIR/.bin/scalar"
@@ -221,6 +222,40 @@ fi
 hash -r
 echo -e "\033[1;32m[✔] git in use: $(command -v git) ($(git --version))\033[0m"
 
+# ============ cmake ============
+# The bundled cmake is an AppImage: every run mounts its payload on a fresh
+# /tmp/.mount_cmakeXXXXXX, and cmake writes the path it was started from into
+# the build system it generates (CMAKE_COMMAND in the generated Makefiles). That
+# mount is gone as soon as the process exits, so the next `cmake --build` dies
+# with "/tmp/.mount_cmakeXXXXXX/bin/cmake: No such file or directory". Unpacking
+# the AppImage once gives cmake a path that is still there on later invocations.
+
+CMAKE_DIR="$WORK_DIR/.bin/.cmake"
+CMAKE_BIN="$CMAKE_DIR/bin/cmake"
+if [ -x "$CMAKE_BIN" ]; then
+  echo -e "\033[1;32m[✔] cmake already unpacked: $("$CMAKE_BIN" --version | head -1)\033[0m"
+else
+  echo -e "\033[1;34m[…] Unpacking cmake...\033[0m"
+  CMAKE_STAGE="$WORK_DIR/.bin/.cmake.stage"
+  rm -rf "$CMAKE_DIR" "$CMAKE_STAGE"
+  mkdir -p "$CMAKE_STAGE"
+  (
+    cd "$CMAKE_STAGE"
+    "$SCRIPT_DIR/tools-bin/cmake" --appimage-extract >/dev/null
+  )
+  mv "$CMAKE_STAGE/squashfs-root" "$CMAKE_DIR"
+  rmdir "$CMAKE_STAGE"
+  if [ ! -x "$CMAKE_BIN" ]; then
+    echo -e "\033[1;31m[✘] ERROR: no cmake at $CMAKE_BIN after unpacking\033[0m"
+    exit 1
+  fi
+  echo -e "\033[1;32m[✔] cmake unpacked: $("$CMAKE_BIN" --version | head -1)\033[0m"
+fi
+# Hand out the unpacked copy from here on, so later cmake runs - this script's
+# and the user's - get one that outlives its own process.
+ln -sf "$CMAKE_BIN" "$WORK_DIR/.bin/cmake"
+hash -r
+
 # ============ neovim  from source============
 
 if [ -x "$WORK_DIR/.bin/nvim" ]; then
@@ -232,8 +267,8 @@ else
   git clone --depth=1 --branch stable https://github.com/neovim/neovim.git "$NVIM_SRC_DIR"
   (
     cd "$NVIM_SRC_DIR"
-    make CMAKE_BUILD_TYPE=Release CMAKE_INSTALL_PREFIX="$WORK_DIR/.bin/.nvim" -j"$(nproc)"
-    make CMAKE_INSTALL_PREFIX="$WORK_DIR/.bin/.nvim" install
+    make CMAKE="$CMAKE_BIN" CMAKE_BUILD_TYPE=Release CMAKE_INSTALL_PREFIX="$WORK_DIR/.bin/.nvim" -j"$(nproc)"
+    make CMAKE="$CMAKE_BIN" CMAKE_INSTALL_PREFIX="$WORK_DIR/.bin/.nvim" install
   )
   ln -sf "$WORK_DIR/.bin/.nvim/bin/nvim" "$WORK_DIR/.bin/nvim"
   rm -rf "$NVIM_SRC_DIR"
