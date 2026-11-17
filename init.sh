@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 reset_environment() {
   echo -e "\033[1;34m[…] Resetting dev environment changes...\033[0m"
 
-  rm -rf "$WORK_DIR/.glibc-2.41" "$WORK_DIR/.bin/.nvim" "$WORK_DIR/.bin/.git" "$WORK_DIR/.bin/.src"
+  rm -rf "$WORK_DIR/.glibc-2.41" "$WORK_DIR/.bin/.nvim" "$WORK_DIR/.bin/.git" "$WORK_DIR/.bin/.src" "$WORK_DIR/.bin/.sysroot"
 
   if [ -d "$WORK_DIR/.bin" ]; then
     rm -f "$WORK_DIR/.bin/nvim" "$WORK_DIR/.bin/git" "$WORK_DIR/.bin/gitk" "$WORK_DIR/.bin/git-cvsserver" "$WORK_DIR/.bin/scalar"
@@ -116,6 +116,92 @@ else
   exit 1
 fi
 
+# ============ Git build dependencies ============
+# Git needs zlib, OpenSSL, libcurl and expat headers to build. Slim nodes ship
+# only the runtime .so files and we are not root, so unpack the matching .deb
+# files (the ones pkgs.org indexes) into a private sysroot and build against
+# that. Pre-downloaded .deb files dropped into $DEB_DIR are used as-is.
+
+MULTIARCH="x86_64-linux-gnu"
+SYSROOT="$WORK_DIR/.bin/.sysroot"
+DEB_DIR="$WORK_DIR/.bin/.src/debs"
+DEB_PKGS="zlib1g-dev libssl-dev libcurl4-openssl-dev libexpat1-dev"
+
+have_system_build_deps() {
+  [ -f /usr/include/zlib.h ] &&
+    [ -f /usr/include/openssl/ssl.h ] &&
+    [ -f /usr/include/expat.h ] &&
+    { [ -f /usr/include/curl/curl.h ] || [ -f "/usr/include/$MULTIARCH/curl/curl.h" ]; }
+}
+
+fetch_deb() {
+  curl -fsSLO "$1" && return 0
+  # The distro's own mirror is not always reachable from these nodes; retry the
+  # same pool path on the upstream archive.
+  local alt=""
+  case "$1" in
+  */ubuntu/*) alt="http://archive.ubuntu.com/ubuntu/${1#*/ubuntu/}" ;;
+  */debian/*) alt="https://deb.debian.org/debian/${1#*/debian/}" ;;
+  esac
+  [ -n "$alt" ] || return 1
+  echo -e "\033[1;33m[!] mirror failed, retrying $alt\033[0m"
+  curl -fsSLO "$alt"
+}
+
+build_deps_sysroot() {
+  if [ -f "$SYSROOT/usr/include/zlib.h" ]; then
+    echo -e "\033[1;32m[✔] build deps sysroot ready: $SYSROOT\033[0m"
+    return 0
+  fi
+  mkdir -p "$DEB_DIR" "$SYSROOT"
+  if ! ls "$DEB_DIR"/*.deb >/dev/null 2>&1; then
+    echo -e "\033[1;34m[…] Resolving .deb URLs for: $DEB_PKGS\033[0m"
+    # --print-uris needs no root, it only reads the apt lists. Dependencies are
+    # named explicitly together with --reinstall so their .deb files get listed
+    # even when the runtime library is already installed on the node.
+    DEB_DEPS=$(apt-cache depends --no-recommends --no-suggests $DEB_PKGS 2>/dev/null |
+      awk '/^ *Depends:/ {print $2}' | grep -v '^<' | sort -u)
+    apt-get install --print-uris -y --reinstall $DEB_PKGS $DEB_DEPS 2>/dev/null |
+      grep -oE "^'[^']+'" | tr -d "'" >"$DEB_DIR/urls.txt" || true
+    if [ ! -s "$DEB_DIR/urls.txt" ]; then
+      echo -e "\033[1;31m[✘] Could not resolve .deb URLs — apt package lists missing?\033[0m"
+      echo -e "\033[1;33m[!] Download these from https://pkgs.org/ by hand into $DEB_DIR and re-run:\033[0m"
+      echo -e "\033[1;33m[!]   $DEB_PKGS\033[0m"
+      return 1
+    fi
+    (
+      cd "$DEB_DIR"
+      while read -r url; do
+        echo "    $(basename "$url")"
+        fetch_deb "$url" || exit 1
+      done <urls.txt
+    ) || {
+      echo -e "\033[1;31m[✘] .deb download failed\033[0m"
+      return 1
+    }
+  fi
+  for deb in "$DEB_DIR"/*.deb; do
+    dpkg-deb -x "$deb" "$SYSROOT" 2>/dev/null ||
+      ar p "$deb" "$(ar t "$deb" | grep '^data\.tar')" | tar -xf - -C "$SYSROOT" ||
+      return 1
+  done
+  # zlib1g-dev's libz.so is an absolute symlink into the host's /lib: repoint
+  # such links at our own copy when we unpacked one, and drop the ones that
+  # resolve nowhere so the linker does not trip over them.
+  find "$SYSROOT" -type l | while read -r link; do
+    target=$(readlink "$link")
+    case "$target" in
+    /*) [ -e "$SYSROOT$target" ] && ln -sf "$SYSROOT$target" "$link" ;;
+    esac
+    [ -e "$link" ] || rm -f "$link"
+  done
+  if [ ! -f "$SYSROOT/usr/include/zlib.h" ]; then
+    echo -e "\033[1;31m[✘] sysroot incomplete, zlib.h missing under $SYSROOT\033[0m"
+    return 1
+  fi
+  echo -e "\033[1;32m[✔] build deps unpacked to $SYSROOT\033[0m"
+}
+
 # ============ Git from source ============
 # Built before everything else: the system git can be too old to clone the repos
 # the steps below need, so they all run with this one instead.
@@ -124,6 +210,41 @@ if [ -x "$WORK_DIR/.bin/git" ]; then
   echo -e "\033[1;32m[✔] git already installed: $($WORK_DIR/.bin/git --version)\033[0m"
 else
   echo -e "\033[1;34m[…] Building Git from source...\033[0m"
+
+  # conda's include/lib paths are kept out of the build so it uses the system
+  # toolchain; point it at the unpacked .deb sysroot when the node has no -dev
+  # packages of its own.
+  GIT_MAKE_FLAGS=(NO_RUST=YesPlease)
+  GIT_CPATH=""
+  GIT_LIBRARY_PATH=""
+  if have_system_build_deps; then
+    echo -e "\033[1;32m[✔] zlib/openssl/curl/expat headers found under /usr/include\033[0m"
+  else
+    build_deps_sysroot || exit 1
+    GIT_CPATH="$SYSROOT/usr/include:$SYSROOT/usr/include/$MULTIARCH"
+    GIT_LIBRARY_PATH="$SYSROOT/usr/lib/$MULTIARCH:$SYSROOT/lib/$MULTIARCH"
+    # Explicit CURL_* flags keep the Makefile from asking curl-config (which the
+    # .deb ships with /usr paths baked in) where libcurl lives. The rpath lets
+    # the installed git find the sysroot's libcurl at runtime.
+    GIT_MAKE_FLAGS+=(
+      "CURL_CFLAGS=-I$SYSROOT/usr/include/$MULTIARCH -I$SYSROOT/usr/include"
+      "CURL_LDFLAGS=-L$SYSROOT/usr/lib/$MULTIARCH -lcurl"
+      "LDFLAGS=-L$SYSROOT/usr/lib/$MULTIARCH -L$SYSROOT/lib/$MULTIARCH -Wl,-rpath,$SYSROOT/usr/lib/$MULTIARCH -Wl,-rpath,$SYSROOT/lib/$MULTIARCH"
+    )
+  fi
+  # po/*.mo needs msgfmt, which on these nodes often only exists inside conda —
+  # and conda is deliberately off the build PATH.
+  [ -x /usr/bin/msgfmt ] || GIT_MAKE_FLAGS+=(NO_GETTEXT=YesPlease)
+
+  GIT_BUILD_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  if [ -n "$GIT_CPATH" ]; then
+    GIT_BUILD_ENV=(-u LD_LIBRARY_PATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH
+      PATH="$GIT_BUILD_PATH" CPATH="$GIT_CPATH" LIBRARY_PATH="$GIT_LIBRARY_PATH")
+  else
+    GIT_BUILD_ENV=(-u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH
+      -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH PATH="$GIT_BUILD_PATH")
+  fi
+
   GIT_SRC_DIR="$WORK_DIR/.bin/.src/git"
   rm -rf "$GIT_SRC_DIR"
   mkdir -p "$GIT_SRC_DIR"
@@ -132,12 +253,9 @@ else
   rm -f "$WORK_DIR/.bin/.src/git.tar.gz"
   (
     cd "$GIT_SRC_DIR"
-    env -u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH \
-      PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-      make NO_RUST=YesPlease -j"$(nproc)"
-    env -u LD_LIBRARY_PATH -u LIBRARY_PATH -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u PKG_CONFIG_PATH \
-      PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-      make NO_RUST=YesPlease prefix="$WORK_DIR/.bin/.git" bindir="$WORK_DIR/.bin" install
+    env "${GIT_BUILD_ENV[@]}" make "${GIT_MAKE_FLAGS[@]}" -j"$(nproc)"
+    env "${GIT_BUILD_ENV[@]}" make "${GIT_MAKE_FLAGS[@]}" \
+      prefix="$WORK_DIR/.bin/.git" bindir="$WORK_DIR/.bin" install
   )
   echo -e "\033[1;32m[✔] git installed: $($WORK_DIR/.bin/git --version)\033[0m"
   rm -rf "$GIT_SRC_DIR"
