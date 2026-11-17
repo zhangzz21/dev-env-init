@@ -24,11 +24,13 @@ reset_environment() {
   echo -e "\033[1;34m[…] Resetting dev environment changes...\033[0m"
 
   rm -rf "$WORK_DIR/.glibc-2.41" "$WORK_DIR/.bin/.nvim" "$WORK_DIR/.bin/.git" \
-    "$WORK_DIR/.bin/.src" "$WORK_DIR/.bin/.sysroot" "$WORK_DIR/.bin/.cmake"
+    "$WORK_DIR/.bin/.src" "$WORK_DIR/.bin/.sysroot" "$WORK_DIR/.bin/.cmake" \
+    "$WORK_DIR/.bin/.zsh"
 
   if [ -d "$WORK_DIR/.bin" ]; then
     rm -f "$WORK_DIR/.bin/nvim" "$WORK_DIR/.bin/git" "$WORK_DIR/.bin/gitk" "$WORK_DIR/.bin/git-cvsserver" "$WORK_DIR/.bin/scalar"
     rm -f "$WORK_DIR/.bin/git-receive-pack" "$WORK_DIR/.bin/git-upload-archive" "$WORK_DIR/.bin/git-upload-pack"
+    rm -f "$WORK_DIR/.bin/zsh"
     if [ -d "$SCRIPT_DIR/tools-bin" ]; then
       find "$SCRIPT_DIR/tools-bin" -mindepth 1 -maxdepth 1 -exec sh -c 'rm -rf "$1/.bin/$(basename "$2")"' sh "$WORK_DIR" {} \;
     fi
@@ -110,12 +112,42 @@ export PATH="$WORK_DIR/.bin:$PATH"
 # export LC_ALL=zh_CN.UTF-8
 # export LANG=zh_CN.UTF-8
 
-if command -v zsh >/dev/null 2>&1; then
-  echo -e "\033[1;32m[✔] zsh found: $(command -v zsh)\033[0m"
+# ============ zsh ============
+# zsh-bin/ holds a hermetic static Zsh: every standard module is linked into the
+# binary and its autoloadable functions ship with it, so none of it depends on
+# what the node has installed. The paths to those functions are patched into the
+# binary at install time - that is what the bundled install script does - so it
+# gets installed into a fixed directory under the work dir rather than copied
+# around afterwards.
+#
+# This replaces the static zsh that used to sit in tools-bin/: that one had its
+# fpath and module_path pointing at a /nix/store directory that only exists on
+# the machine which built it, so every autoload (compinit, add-zsh-hook,
+# is-at-least, colors) failed, and it was missing zsh/system and zsh/files,
+# which powerlevel10k needs for git status.
+
+ZSH_DIR="$WORK_DIR/.bin/.zsh"
+ZSH_BIN="$ZSH_DIR/bin/zsh"
+if [ -x "$ZSH_BIN" ]; then
+  echo -e "\033[1;32m[✔] zsh already installed: $("$ZSH_BIN" --version)\033[0m"
 else
-  echo -e "\033[1;31m[✘] ERROR: zsh not found!\033[0m"
-  exit 1
+  ZSH_ARCHIVE="$(ls "$SCRIPT_DIR"/zsh-bin/zsh-*-linux-x86_64.tar.gz 2>/dev/null | head -1)"
+  if [ -z "$ZSH_ARCHIVE" ] || [ ! -f "$SCRIPT_DIR/zsh-bin/install" ]; then
+    echo -e "\033[1;31m[✘] ERROR: zsh-bin/ needs both 'install' and 'zsh-*-linux-x86_64.tar.gz'\033[0m"
+    echo -e "\033[1;33m[!] zsh-bin/README.md says where they come from\033[0m"
+    exit 1
+  fi
+  echo -e "\033[1;34m[…] Installing zsh...\033[0m"
+  rm -rf "$ZSH_DIR"
+  sh "$SCRIPT_DIR/zsh-bin/install" -q -e no -d "$ZSH_DIR" -f "$ZSH_ARCHIVE"
+  if [ ! -x "$ZSH_BIN" ]; then
+    echo -e "\033[1;31m[✘] ERROR: no zsh at $ZSH_BIN after installing\033[0m"
+    exit 1
+  fi
+  echo -e "\033[1;32m[✔] zsh installed: $("$ZSH_BIN" --version)\033[0m"
 fi
+ln -sf "$ZSH_BIN" "$WORK_DIR/.bin/zsh"
+hash -r
 
 # ============ Git build dependencies ============
 # Building Git needs the zlib, libcurl and expat headers. The nodes ship only
