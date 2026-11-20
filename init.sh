@@ -43,8 +43,8 @@ reset_environment() {
     sed -i '/^export PAGER=delta$/d' "$HOME/.zshrc"
     sed -i '/^setopt ignore_eof$/d' "$HOME/.zshrc"
     sed -i 's|^ZSH_THEME="powerlevel10k/powerlevel10k"|ZSH_THEME="robbyrussell"|' "$HOME/.zshrc"
-    # The optional zsh-vi-mode entry is only present in .zshrc written by older runs
-    sed -i -E 's/^plugins=\(git zsh-autosuggestions zsh-syntax-highlighting z( zsh-vi-mode)?\)/plugins=(git)/' "$HOME/.zshrc"
+    # Matches any plugin list this script has written, past or present
+    sed -i -E 's/^plugins=\(git .*zsh-autosuggestions.*\)$/plugins=(git)/' "$HOME/.zshrc"
     sed -i '/^ZVM_INIT_MODE=sourcing$/d' "$HOME/.zshrc"
     sed -i '\|eval "$(atuin init zsh --disable-up-arrow)"|d' "$HOME/.zshrc"
   fi
@@ -348,7 +348,9 @@ fi
 
 # Enable plugins and theme in .zshrc
 if [ -f "$HOME/.zshrc" ]; then
-  sed -i 's/^plugins=(.*/plugins=(git zsh-autosuggestions zsh-syntax-highlighting z)/' "$HOME/.zshrc"
+  # vi-mode defines zle widgets, so it goes before zsh-autosuggestions and
+  # zsh-syntax-highlighting, which wrap existing widgets when they load.
+  sed -i 's/^plugins=(.*/plugins=(git vi-mode zsh-autosuggestions zsh-syntax-highlighting z)/' "$HOME/.zshrc"
   sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$HOME/.zshrc"
   # Drop leftovers from earlier runs that installed zsh-vi-mode
   sed -i '/^ZVM_INIT_MODE=sourcing$/d' "$HOME/.zshrc"
