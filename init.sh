@@ -43,7 +43,8 @@ reset_environment() {
     sed -i '/^export PAGER=delta$/d' "$HOME/.zshrc"
     sed -i '/^setopt ignore_eof$/d' "$HOME/.zshrc"
     sed -i 's|^ZSH_THEME="powerlevel10k/powerlevel10k"|ZSH_THEME="robbyrussell"|' "$HOME/.zshrc"
-    sed -i 's/^plugins=(git zsh-autosuggestions zsh-syntax-highlighting z zsh-vi-mode)/plugins=(git)/' "$HOME/.zshrc"
+    # The optional zsh-vi-mode entry is only present in .zshrc written by older runs
+    sed -i -E 's/^plugins=\(git zsh-autosuggestions zsh-syntax-highlighting z( zsh-vi-mode)?\)/plugins=(git)/' "$HOME/.zshrc"
     sed -i '/^ZVM_INIT_MODE=sourcing$/d' "$HOME/.zshrc"
     sed -i '\|eval "$(atuin init zsh --disable-up-arrow)"|d' "$HOME/.zshrc"
   fi
@@ -339,11 +340,6 @@ if [ ! -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]; then
   git clone https://github.com/zsh-users/zsh-syntax-highlighting "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
 fi
 
-if [ ! -d "$ZSH_CUSTOM/plugins/zsh-vi-mode" ]; then
-  echo -e "\033[1;34m[…] Installing zsh-vi-mode...\033[0m"
-  git clone https://github.com/jeffreytse/zsh-vi-mode "$ZSH_CUSTOM/plugins/zsh-vi-mode"
-fi
-
 # Install powerlevel10k theme
 if [ ! -d "$ZSH_CUSTOM/themes/powerlevel10k" ]; then
   echo -e "\033[1;34m[…] Installing powerlevel10k...\033[0m"
@@ -352,13 +348,11 @@ fi
 
 # Enable plugins and theme in .zshrc
 if [ -f "$HOME/.zshrc" ]; then
-  # zsh-vi-mode replaces oh-my-zsh's built-in vi-mode plugin and must be loaded last
-  # so it can wrap the keybindings other plugins install.
-  sed -i 's/^plugins=(.*/plugins=(git zsh-autosuggestions zsh-syntax-highlighting z zsh-vi-mode)/' "$HOME/.zshrc"
+  sed -i 's/^plugins=(.*/plugins=(git zsh-autosuggestions zsh-syntax-highlighting z)/' "$HOME/.zshrc"
   sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$HOME/.zshrc"
-  # Initialize zsh-vi-mode at source time instead of the first precmd, otherwise it
-  # clobbers keybindings added later in .zshrc (e.g. atuin's Ctrl-R).
-  grep -q '^ZVM_INIT_MODE=sourcing' "$HOME/.zshrc" || sed -i '/^plugins=(/i ZVM_INIT_MODE=sourcing' "$HOME/.zshrc"
+  # Drop leftovers from earlier runs that installed zsh-vi-mode
+  sed -i '/^ZVM_INIT_MODE=sourcing$/d' "$HOME/.zshrc"
+  rm -rf "$ZSH_CUSTOM/plugins/zsh-vi-mode"
   grep -q 'export EDITOR=nvim' "$HOME/.zshrc" || echo 'export EDITOR=nvim' >>"$HOME/.zshrc"
   grep -q 'export PAGER=delta' "$HOME/.zshrc" || echo 'export PAGER=delta' >>"$HOME/.zshrc"
   grep -q 'setopt ignore_eof' "$HOME/.zshrc" || echo 'setopt ignore_eof' >>"$HOME/.zshrc"
